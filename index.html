@@ -1,0 +1,1197 @@
+<!DOCTYPE html>
+<html lang="tr" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <!-- iOS Web App (PWA) Meta Etiketleri -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="OdakPlan">
+    <meta name="theme-color" content="#000000">
+    
+    <title>OdakPlan — Kişisel Günlük Harekat Planı</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <!-- Tone.js (Bildirim ve Tamamlama Ses Efektleri için) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
+                    },
+                    colors: {
+                        oled: '#000000',
+                        card: '#121215',
+                        cardHover: '#18181C',
+                        borderDark: '#232329',
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        /* iOS Safe Area ve Mobil Kaydırma Optimizasyonları */
+        :root {
+            --sat: env(safe-area-inset-top, 20px);
+            --sab: env(safe-area-inset-bottom, 20px);
+        }
+
+        body {
+            background-color: #000000;
+            color: #F4F4F5;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            -webkit-tap-highlight-color: transparent;
+            overscroll-behavior-y: none;
+            padding-top: var(--sat);
+            padding-bottom: calc(var(--sab) + 96px);
+        }
+
+        /* Özel Kaydırma Çubuğu Gizleme */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+
+        /* Mikro Animasyonlar */
+        @keyframes pulseRing {
+            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+            70% { transform: scale(1.05); box-shadow: 0 0 0 18px rgba(239, 68, 68, 0); }
+            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
+
+        .recording-pulse {
+            animation: pulseRing 1.5s infinite cubic-bezier(0.66, 0, 0, 1);
+        }
+
+        @keyframes waveBar {
+            0%, 100% { height: 8px; }
+            50% { height: 28px; }
+        }
+
+        .wave-bar {
+            animation: waveBar 0.8s ease-in-out infinite;
+        }
+        .wave-bar:nth-child(2) { animation-delay: 0.15s; }
+        .wave-bar:nth-child(3) { animation-delay: 0.3s; }
+        .wave-bar:nth-child(4) { animation-delay: 0.45s; }
+        .wave-bar:nth-child(5) { animation-delay: 0.2s; }
+
+        @keyframes popIn {
+            0% { opacity: 0; transform: translateY(12px) scale(0.98); }
+            100% { opacity: 1; transform: translateY(0) scale(1); }
+        }
+
+        .animate-pop {
+            animation: popIn 0.28s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+
+        /* Checkbox Geçişi */
+        .custom-checkbox {
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .custom-checkbox:active {
+            transform: scale(0.85);
+        }
+
+        /* Konfeti Parçacıkları */
+        .confetti-piece {
+            position: fixed;
+            width: 8px;
+            height: 8px;
+            border-radius: 2px;
+            pointer-events: none;
+            z-index: 100;
+            animation: confettiFall 2.4s ease-out forwards;
+        }
+
+        @keyframes confettiFall {
+            0% { transform: translateY(-20px) rotate(0deg); opacity: 1; }
+            100% { transform: translateY(100vh) rotate(720deg); opacity: 0; }
+        }
+    </style>
+</head>
+<body class="min-h-screen select-none">
+
+    <!-- Üst Bildirim / Toast Mesaj Alanı -->
+    <div id="toast-container" class="fixed top-4 left-4 right-4 z-50 flex flex-col items-center pointer-events-none" style="padding-top: var(--sat);"></div>
+
+    <!-- Ana Konteyner (Mobil Odaklı Maksimum Genişlik) -->
+    <div class="max-w-lg mx-auto px-4 pt-3">
+
+        <!-- Üst Bilgi & Ayarlar Barı -->
+        <header class="flex items-center justify-between mb-4">
+            <div>
+                <p id="current-date-label" class="text-xs font-medium text-zinc-400 uppercase tracking-wider"></p>
+                <h1 id="greeting-title" class="text-2xl font-extrabold tracking-tight text-white mt-0.5">İyi Akşamlar</h1>
+            </div>
+            <div class="flex items-center gap-2">
+                <button onclick="openHelpModal()" title="iPhone'a Uygulama Olarak Ekle" class="p-2.5 rounded-2xl bg-card border border-borderDark text-zinc-300 hover:text-white active:scale-95 transition">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"></path>
+                    </svg>
+                </button>
+                <button onclick="toggleNotificationPermission()" id="notif-btn" title="Hatırlatıcı Bildirimleri" class="p-2.5 rounded-2xl bg-card border border-borderDark text-zinc-300 hover:text-white active:scale-95 transition relative">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path>
+                    </svg>
+                    <span id="notif-dot" class="hidden absolute top-2 right-2 w-2 h-2 rounded-full bg-emerald-500"></span>
+                </button>
+            </div>
+        </header>
+
+        <!-- Motivasyon & Günlük İlerleme Kartı -->
+        <section id="progress-card" class="rounded-3xl bg-gradient-to-br from-[#16161B] to-[#0E0E11] border border-borderDark p-5 mb-5 shadow-2xl relative overflow-hidden">
+            <div class="flex items-start justify-between gap-4 relative z-10">
+                <div class="flex-1">
+                    <div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold mb-2">
+                        <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                        <span id="progress-badge-text">Günün Özeti</span>
+                    </div>
+                    <p id="motivation-text" class="text-sm font-medium text-zinc-200 leading-snug">
+                        Planını netleştir, adım adım ilerle. Kontrol sende!
+                    </p>
+                </div>
+                <div class="text-right shrink-0">
+                    <span id="progress-percent" class="text-3xl font-extrabold text-white tracking-tight">0%</span>
+                    <p id="progress-counts" class="text-xs text-zinc-400 mt-0.5">0 / 0 adım</p>
+                </div>
+            </div>
+
+            <!-- İlerleme Çubuğu -->
+            <div class="w-full h-3 bg-zinc-900 rounded-full mt-4 overflow-hidden p-0.5 border border-zinc-800/80">
+                <div id="progress-bar-fill" class="h-full rounded-full bg-gradient-to-r from-indigo-500 via-emerald-500 to-emerald-400 transition-all duration-500 ease-out" style="width: 0%"></div>
+            </div>
+        </section>
+
+        <!-- Gün Seçici (Segmented Control: Bugün / Yarın) -->
+        <div class="bg-card p-1.5 rounded-2xl border border-borderDark flex items-center justify-between mb-5">
+            <button onclick="switchDay('today')" id="tab-today" class="flex-1 py-2.5 px-3 rounded-xl text-sm font-semibold transition-all duration-200 flex items-center justify-center gap-2 bg-zinc-800 text-white shadow">
+                <span>Bugün</span>
+                <span id="count-today" class="text-xs px-2 py-0.5 rounded-full bg-zinc-700 text-zinc-200">0</span>
+            </button>
+            <button onclick="switchDay('tomorrow')" id="tab-tomorrow" class="flex-1 py-2.5 px-3 rounded-xl text-sm font-semibold transition-all duration-200 flex items-center justify-center gap-2 text-zinc-400 hover:text-zinc-200">
+                <span>Yarın Planı</span>
+                <span id="count-tomorrow" class="text-xs px-2 py-0.5 rounded-full bg-zinc-800/80 text-zinc-400">0</span>
+            </button>
+        </div>
+
+        <!-- Yarın Sekmesi Bilgi Bandı -->
+        <div id="tomorrow-banner" class="hidden mb-4 p-3.5 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-between gap-3">
+            <div class="flex items-center gap-2.5">
+                <span class="text-lg">🌙</span>
+                <p class="text-xs text-indigo-200 leading-relaxed">
+                    Buraya eklediğin görevler yarın sabah otomatik olarak <strong>Bugün</strong> listene aktarılır.
+                </p>
+            </div>
+        </div>
+
+        <!-- Görev Listesi Alanı -->
+        <main id="task-list" class="space-y-3.5">
+            <!-- Görev kartları JS ile buraya render edilecek -->
+        </main>
+
+        <!-- Boş Durum (Empty State) -->
+        <div id="empty-state" class="hidden text-center py-12 px-4">
+            <div class="w-16 h-16 rounded-3xl bg-card border border-borderDark flex items-center justify-center mx-auto mb-4 text-2xl">
+                ✨
+            </div>
+            <h3 id="empty-title" class="text-base font-bold text-white mb-1">Henüz bir plan yok</h3>
+            <p id="empty-desc" class="text-sm text-zinc-400 max-w-xs mx-auto mb-5">
+                Aşağıdaki mikrofon butonuna dokunup sesli olarak görevlerini ve alt adımlarını sıralayabilirsin.
+            </p>
+            <button onclick="loadSampleData(true)" class="text-xs font-medium text-indigo-400 hover:text-indigo-300 underline">
+                Örnek plan yükle
+            </button>
+        </div>
+
+    </div>
+
+    <!-- Alt Sabit Aksiyon Çubuğu (Floating Bottom Dock) -->
+    <div class="fixed bottom-0 left-0 right-0 z-30 bg-gradient-to-t from-black via-black/95 to-transparent pt-6 px-4" style="padding-bottom: calc(var(--sab) + 12px);">
+        <div class="max-w-lg mx-auto flex items-center gap-3">
+            <!-- Yazarak Ekle Butonu -->
+            <button onclick="openTaskModal(false)" class="flex-1 h-14 rounded-2xl bg-card hover:bg-cardHover border border-borderDark text-white font-semibold text-sm flex items-center justify-center gap-2 active:scale-95 transition shadow-lg">
+                <svg class="w-5 h-5 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+                </svg>
+                <span>Görev Yaz</span>
+            </button>
+
+            <!-- Sesle Ekle Ana Butonu -->
+            <button onclick="openTaskModal(true)" class="flex-[1.4] h-14 rounded-2xl bg-gradient-to-r from-indigo-600 to-emerald-600 hover:from-indigo-500 hover:to-emerald-500 text-white font-bold text-sm flex items-center justify-center gap-2.5 active:scale-95 transition shadow-lg shadow-emerald-950/40">
+                <div class="w-7 h-7 rounded-full bg-white/20 flex items-center justify-center">
+                    <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path>
+                    </svg>
+                </div>
+                <span>Sesle Planla</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- GÖREV & SESLİ KAYIT MODALI -->
+    <div id="task-modal" class="fixed inset-0 z-50 hidden items-end sm:items-center justify-center bg-black/80 backdrop-blur-sm transition-opacity">
+        <div class="w-full max-w-lg bg-[#121215] border-t sm:border border-borderDark rounded-t-3xl sm:rounded-3xl p-5 shadow-2xl animate-pop max-h-[90vh] overflow-y-auto" style="padding-bottom: calc(var(--sab) + 20px);">
+            
+            <!-- Modal Üst Tutamaç ve Başlık -->
+            <div class="w-10 h-1 bg-zinc-700 rounded-full mx-auto mb-4 sm:hidden"></div>
+            <div class="flex items-center justify-between mb-4">
+                <h2 id="modal-title" class="text-lg font-bold text-white">Yeni Görev Planla</h2>
+                <button onclick="closeTaskModal()" class="p-2 rounded-xl bg-zinc-800/80 text-zinc-400 hover:text-white">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+
+            <!-- Sesli Kayıt Alanı -->
+            <div id="voice-panel" class="mb-4 p-4 rounded-2xl bg-zinc-900/90 border border-zinc-800 text-center">
+                <div class="flex items-center justify-center gap-3 mb-2">
+                    <button id="mic-trigger-btn" onclick="toggleVoiceRecording()" class="w-14 h-14 rounded-full bg-red-500/20 border-2 border-red-500 text-red-400 flex items-center justify-center transition active:scale-90">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path>
+                        </svg>
+                    </button>
+                </div>
+
+                <!-- Ses Dalgası Animasyonu -->
+                <div id="voice-wave" class="hidden items-center justify-center gap-1 h-8 my-1">
+                    <span class="w-1 bg-red-400 rounded-full wave-bar"></span>
+                    <span class="w-1 bg-red-400 rounded-full wave-bar"></span>
+                    <span class="w-1 bg-red-400 rounded-full wave-bar"></span>
+                    <span class="w-1 bg-red-400 rounded-full wave-bar"></span>
+                    <span class="w-1 bg-red-400 rounded-full wave-bar"></span>
+                </div>
+
+                <p id="voice-status-text" class="text-xs font-medium text-zinc-300 mt-1">
+                    Konuşmak için mikrofona dokun
+                </p>
+                <p class="text-[11px] text-zinc-500 mt-1">
+                    İpucu: <em>"Sunumu hazırla, önce verileri topla sonra grafikleri çiz"</em> dersen otomatik alt görevlere bölerim.
+                </p>
+            </div>
+
+            <!-- Ana Görev Başlığı -->
+            <div class="mb-4">
+                <label class="block text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-1.5">Ana Görev (Hedef)</label>
+                <input type="text" id="input-task-title" placeholder="Örn: Haftalık proje sunumunu tamamla" class="w-full px-4 py-3.5 rounded-2xl bg-zinc-900 border border-zinc-800 text-white placeholder-zinc-500 text-sm focus:outline-none focus:border-indigo-500 transition">
+            </div>
+
+            <!-- Alt Görevler (Subtasks) Listesi -->
+            <div class="mb-4">
+                <div class="flex items-center justify-between mb-1.5">
+                    <label class="text-xs font-semibold text-zinc-400 uppercase tracking-wider">Yapılacak Adımlar (Alt Görevler)</label>
+                    <button type="button" onclick="smartSplitTitleToSubtasks()" id="smart-split-btn" class="hidden text-xs font-semibold text-emerald-400 hover:text-emerald-300">
+                        ✨ Cümleyi Adımlara Böl
+                    </button>
+                </div>
+                
+                <div id="modal-subtasks-list" class="space-y-2 mb-2">
+                    <!-- Dinamik alt görev inputları -->
+                </div>
+
+                <div class="flex items-center gap-2">
+                    <input type="text" id="input-new-subtask" placeholder="+ Yeni adım ekle (Enter)" onkeypress="handleSubtaskKeyPress(event)" class="flex-1 px-3.5 py-2.5 rounded-xl bg-zinc-900/70 border border-zinc-800 text-white placeholder-zinc-500 text-sm focus:outline-none focus:border-emerald-500">
+                    <button type="button" onclick="addModalSubtask()" class="px-3.5 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-sm font-semibold active:scale-95 transition">
+                        Ekle
+                    </button>
+                </div>
+            </div>
+
+            <!-- Zamanlama ve Gün Seçimi -->
+            <div class="grid grid-cols-2 gap-3 mb-5">
+                <div>
+                    <label class="block text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-1.5">Hangi Gün?</label>
+                    <select id="input-task-day" class="w-full px-3.5 py-3 rounded-xl bg-zinc-900 border border-zinc-800 text-white text-sm focus:outline-none focus:border-indigo-500">
+                        <option value="today">Bugün</option>
+                        <option value="tomorrow">Yarın</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-1.5">Hatırlatma Saati</label>
+                    <input type="time" id="input-task-time" class="w-full px-3.5 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-white text-sm focus:outline-none focus:border-indigo-500">
+                </div>
+            </div>
+
+            <!-- Kaydet Butonu -->
+            <button onclick="saveTask()" class="w-full py-4 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm shadow-lg shadow-emerald-950/50 active:scale-98 transition">
+                Planıma Ekle
+            </button>
+        </div>
+    </div>
+
+    <!-- iPHONE ANA EKRANA EKLEME REHBERİ MODALI -->
+    <div id="help-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/85 backdrop-blur-sm p-4">
+        <div class="w-full max-w-md bg-[#121215] border border-borderDark rounded-3xl p-6 shadow-2xl animate-pop">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-bold text-white">iPhone'a App Olarak Kur</h3>
+                <button onclick="closeHelpModal()" class="p-2 rounded-xl bg-zinc-800 text-zinc-400 hover:text-white">✕</button>
+            </div>
+            <div class="space-y-4 text-sm text-zinc-300">
+                <p class="leading-relaxed">
+                    Bu uygulamayı App Store olmadan doğrudan kendi iPhone'una tam ekran uygulama olarak yükleyebilirsin:
+                </p>
+                <div class="p-3.5 rounded-2xl bg-zinc-900 border border-zinc-800 space-y-2.5">
+                    <div class="flex items-start gap-3">
+                        <span class="w-6 h-6 rounded-full bg-indigo-500/20 text-indigo-400 font-bold text-xs flex items-center justify-center shrink-0 mt-0.5">1</span>
+                        <p>Bu sayfayı <strong>Safari</strong> tarayıcısında aç (ücretsiz olarak Netlify/Vercel'e yükledikten sonra).</p>
+                    </div>
+                    <div class="flex items-start gap-3">
+                        <span class="w-6 h-6 rounded-full bg-indigo-500/20 text-indigo-400 font-bold text-xs flex items-center justify-center shrink-0 mt-0.5">2</span>
+                        <p>Alt menüdeki <strong>Paylaş (Kare ve Yukarı Ok)</strong> simgesine dokun.</p>
+                    </div>
+                    <div class="flex items-start gap-3">
+                        <span class="w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 font-bold text-xs flex items-center justify-center shrink-0 mt-0.5">3</span>
+                        <p>Aşağı kaydırıp <strong>"Ana Ekrana Ekle" (Add to Home Screen)</strong> seçeneğine bas.</p>
+                    </div>
+                </div>
+                <p class="text-xs text-zinc-400">
+                    💡 <strong>Hatırlatma İpucu:</strong> Saat seçtiğin görevlerin yanındaki <strong>Takvim/Alarm</strong> ikonuna dokunursan, iPhone'un kendi Takvim/Hatırlatıcı sistemine tek tıkla alarm kurar; ekran kilitliyken bile bildirim alırsın.
+                </p>
+            </div>
+            <button onclick="closeHelpModal()" class="w-full mt-5 py-3.5 rounded-2xl bg-zinc-800 hover:bg-zinc-700 text-white font-semibold text-sm">
+                Anladım
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // ==========================================
+        // DURUM YÖNETİMİ VE VERİ YAPISI (STATE)
+        // ==========================================
+        const STORAGE_KEY = 'odakplan_tasks_v1';
+        let tasks = [];
+        let activeTab = 'today'; // 'today' | 'tomorrow'
+        let modalSubtasks = [];
+        let recognition = null;
+        let isRecording = false;
+        let lastCelebratedDate = null;
+
+        // Bugün ve Yarın Tarih Anahtarları (YYYY-MM-DD)
+        function getDateStr(offsetDays = 0) {
+            const d = new Date();
+            d.setDate(d.getDate() + offsetDays);
+            return d.toISOString().split('T')[0];
+        }
+
+        // ==========================================
+        // SES EFEKTLERİ (TONE.JS - HARİCİ DOSYASIZ)
+        // ==========================================
+        function playFeedbackSound(type = 'check') {
+            try {
+                if (typeof Tone === 'undefined') return;
+                if (Tone.context.state !== 'running') {
+                    Tone.context.resume();
+                }
+                const synth = new Tone.Synth({
+                    oscillator: { type: 'sine' },
+                    envelope: { attack: 0.005, decay: 0.12, sustain: 0, release: 0.1 }
+                }).toDestination();
+                synth.volume.value = -10;
+
+                if (type === 'check') {
+                    synth.triggerAttackRelease('C6', '16n');
+                } else if (type === 'completeAll') {
+                    const now = Tone.now();
+                    synth.triggerAttackRelease('C5', '16n', now);
+                    synth.triggerAttackRelease('E5', '16n', now + 0.08);
+                    synth.triggerAttackRelease('G5', '16n', now + 0.16);
+                    synth.triggerAttackRelease('C6', '8n', now + 0.24);
+                } else if (type === 'reminder') {
+                    const now = Tone.now();
+                    synth.triggerAttackRelease('A5', '8n', now);
+                    synth.triggerAttackRelease('E6', '8n', now + 0.2);
+                }
+            } catch (e) {
+                // Ses çalma engellenirse sessizce devam et
+            }
+        }
+
+        // ==========================================
+        // BAŞLANGIÇ VE TARİH SENKRONİZASYONU
+        // ==========================================
+        window.onload = function () {
+            updateHeaderDateAndGreeting();
+            loadTasks();
+            initSpeechRecognition();
+            renderAll();
+            startReminderWatcher();
+            checkNotificationStatus();
+        };
+
+        function updateHeaderDateAndGreeting() {
+            const now = new Date();
+            const hour = now.getHours();
+            let greeting = 'İyi Günler';
+            if (hour >= 5 && hour < 12) greeting = 'Günaydın ☀️';
+            else if (hour >= 12 && hour < 18) greeting = 'İyi Günler 🚀';
+            else if (hour >= 18 && hour < 23) greeting = 'İyi Akşamlar 🌙';
+            else greeting = 'Gece Planı ✨';
+
+            document.getElementById('greeting-title').textContent = greeting;
+
+            const options = { weekday: 'long', day: 'numeric', month: 'long' };
+            document.getElementById('current-date-label').textContent = now.toLocaleDateString('tr-TR', options);
+        }
+
+        function loadTasks() {
+            const raw = localStorage.getItem(STORAGE_KEY);
+            const todayStr = getDateStr(0);
+
+            if (!raw) {
+                loadSampleData(false);
+                return;
+            }
+
+            try {
+                tasks = JSON.parse(raw) || [];
+                // Geçmiş günlerde kalan tamamlanmamış görevleri bugüne taşı (isteğe bağlı akıllı devir)
+                let changed = false;
+                tasks.forEach(t => {
+                    if (t.date < todayStr && !t.completed) {
+                        t.date = todayStr;
+                        changed = true;
+                    }
+                });
+                if (changed) saveTasksToStorage();
+            } catch (e) {
+                tasks = [];
+            }
+        }
+
+        function saveTasksToStorage() {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
+        }
+
+        function loadSampleData(notify = true) {
+            const todayStr = getDateStr(0);
+            const tomorrowStr = getDateStr(1);
+
+            tasks = [
+                {
+                    id: 'sample-1',
+                    title: 'Sabah Rutini & Güne Hazırlık',
+                    date: todayStr,
+                    time: '09:00',
+                    completed: false,
+                    expanded: true,
+                    reminded: false,
+                    subtasks: [
+                        { id: 's1-1', title: '1 bardak su iç ve 10 dk esneme yap', completed: true },
+                        { id: 's1-2', title: 'Günün en önemli 3 önceliğini gözden geçir', completed: false },
+                        { id: 's1-3', title: 'Gelen kutusunu ve acil mesajları temizle', completed: false }
+                    ]
+                },
+                {
+                    id: 'sample-2',
+                    title: 'Haftalık Proje Sunumunu Tamamla',
+                    date: todayStr,
+                    time: '14:30',
+                    completed: false,
+                    expanded: true,
+                    reminded: false,
+                    subtasks: [
+                        { id: 's2-1', title: 'Satış ve büyüme metriklerini tabloya aktar', completed: false },
+                        { id: 's2-2', title: 'Sonuç slaydını özetle ve görselleştir', completed: false }
+                    ]
+                },
+                {
+                    id: 'sample-3',
+                    title: 'Yarınki Müşteri Toplantısına Hazırlan',
+                    date: tomorrowStr,
+                    time: '10:00',
+                    completed: false,
+                    expanded: true,
+                    reminded: false,
+                    subtasks: [
+                        { id: 's3-1', title: 'Teklif dosyasını PDF olarak dışa aktar', completed: false },
+                        { id: 's3-2', title: 'Toplantı gündem maddelerini not al', completed: false }
+                    ]
+                }
+            ];
+            saveTasksToStorage();
+            renderAll();
+            if (notify) showToast('Örnek günlük plan yüklendi!');
+        }
+
+        // ==========================================
+        // RENDER & MOTİVASYON HESAPLAMA
+        // ==========================================
+        function switchDay(tab) {
+            activeTab = tab;
+            const tabToday = document.getElementById('tab-today');
+            const tabTomorrow = document.getElementById('tab-tomorrow');
+            const tomorrowBanner = document.getElementById('tomorrow-banner');
+
+            if (tab === 'today') {
+                tabToday.className = 'flex-1 py-2.5 px-3 rounded-xl text-sm font-semibold transition-all duration-200 flex items-center justify-center gap-2 bg-zinc-800 text-white shadow';
+                tabTomorrow.className = 'flex-1 py-2.5 px-3 rounded-xl text-sm font-semibold transition-all duration-200 flex items-center justify-center gap-2 text-zinc-400 hover:text-zinc-200';
+                tomorrowBanner.classList.add('hidden');
+            } else {
+                tabTomorrow.className = 'flex-1 py-2.5 px-3 rounded-xl text-sm font-semibold transition-all duration-200 flex items-center justify-center gap-2 bg-indigo-600 text-white shadow';
+                tabToday.className = 'flex-1 py-2.5 px-3 rounded-xl text-sm font-semibold transition-all duration-200 flex items-center justify-center gap-2 text-zinc-400 hover:text-zinc-200';
+                tomorrowBanner.classList.remove('hidden');
+            }
+            renderAll();
+        }
+
+        function renderAll() {
+            const todayStr = getDateStr(0);
+            const tomorrowStr = getDateStr(1);
+
+            const todayTasks = tasks.filter(t => t.date === todayStr);
+            const tomorrowTasks = tasks.filter(t => t.date >= tomorrowStr);
+
+            document.getElementById('count-today').textContent = todayTasks.length;
+            document.getElementById('count-tomorrow').textContent = tomorrowTasks.length;
+
+            const currentTasks = activeTab === 'today' ? todayTasks : tomorrowTasks;
+            updateMotivationAndProgress(currentTasks);
+
+            const listEl = document.getElementById('task-list');
+            const emptyEl = document.getElementById('empty-state');
+
+            if (currentTasks.length === 0) {
+                listEl.innerHTML = '';
+                emptyEl.classList.remove('hidden');
+                document.getElementById('empty-title').textContent = activeTab === 'today'
+                    ? 'Bugün için henüz görev yok'
+                    : 'Yarın için henüz plan yapmadın';
+                return;
+            }
+
+            emptyEl.classList.add('hidden');
+
+            // Tamamlanmamışları üstte, tamamlananları altta göster
+            const sorted = [...currentTasks].sort((a, b) => Number(a.completed) - Number(b.completed));
+
+            listEl.innerHTML = sorted.map(task => renderTaskCard(task)).join('');
+        }
+
+        function updateMotivationAndProgress(list) {
+            let totalUnits = 0;
+            let completedUnits = 0;
+
+            list.forEach(task => {
+                if (task.subtasks && task.subtasks.length > 0) {
+                    totalUnits += task.subtasks.length;
+                    completedUnits += task.subtasks.filter(s => s.completed).length;
+                } else {
+                    totalUnits += 1;
+                    if (task.completed) completedUnits += 1;
+                }
+            });
+
+            const percent = totalUnits === 0 ? 0 : Math.round((completedUnits / totalUnits) * 100);
+
+            document.getElementById('progress-percent').textContent = `${percent}%`;
+            document.getElementById('progress-counts').textContent = `${completedUnits} / ${totalUnits} adım`;
+            document.getElementById('progress-bar-fill').style.width = `${percent}%`;
+
+            const badgeEl = document.getElementById('progress-badge-text');
+            const msgEl = document.getElementById('motivation-text');
+
+            if (activeTab === 'tomorrow') {
+                badgeEl.textContent = 'Yarın Hazırlığı';
+                msgEl.textContent = list.length === 0
+                    ? 'Yarınını şimdiden tasarla, sabah zihnin berrak uyansın.'
+                    : `Yarın için ${list.length} ana hedef belirledin. Harika bir öngörü!`;
+                return;
+            }
+
+            badgeEl.textContent = 'Bugünün İlerlemesi';
+            if (totalUnits === 0) {
+                msgEl.textContent = 'Güne yön vermek için ilk görevini sesli veya yazılı ekle.';
+            } else if (percent === 0) {
+                msgEl.textContent = 'En zor kısım başlamaktır. İlk küçük adımı şimdi at!';
+            } else if (percent < 50) {
+                msgEl.textContent = 'Güzel ivme yakaladın! Adım adım hedefe yaklaşıyorsun.';
+            } else if (percent < 100) {
+                msgEl.textContent = 'Yarıyı geçtin, ritmi hiç bozma! Bitiş çizgisi görünüyor.';
+            } else {
+                msgEl.textContent = 'Efsanesin! Bugünün tüm hedeflerini %100 tamamladın 🔥';
+                const todayKey = getDateStr(0);
+                if (lastCelebratedDate !== todayKey) {
+                    lastCelebratedDate = todayKey;
+                    triggerConfetti();
+                }
+            }
+        }
+
+        function renderTaskCard(task) {
+            const hasSubtasks = task.subtasks && task.subtasks.length > 0;
+            const subTotal = hasSubtasks ? task.subtasks.length : 0;
+            const subDone = hasSubtasks ? task.subtasks.filter(s => s.completed).length : 0;
+            const subPercent = hasSubtasks ? Math.round((subDone / subTotal) * 100) : (task.completed ? 100 : 0);
+
+            return `
+            <div class="rounded-3xl bg-card border ${task.completed ? 'border-emerald-500/20 opacity-75' : 'border-borderDark'} p-4 transition-all duration-300 animate-pop">
+                <!-- Ana Görev Satırı -->
+                <div class="flex items-start gap-3.5">
+                    <!-- Ana Checkbox -->
+                    <button onclick="toggleMainTask('${task.id}')" class="custom-checkbox mt-0.5 w-6 h-6 rounded-xl border-2 flex items-center justify-center shrink-0 ${
+                        task.completed
+                            ? 'bg-emerald-500 border-emerald-500 text-black'
+                            : 'border-zinc-600 hover:border-emerald-400 bg-zinc-900'
+                    }">
+                        ${task.completed ? '<svg class="w-4 h-4 stroke-[3]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"></path></svg>' : ''}
+                    </button>
+
+                    <!-- Başlık ve Meta Bilgiler -->
+                    <div class="flex-1 min-w-0" onclick="toggleExpandTask('${task.id}')">
+                        <h3 class="text-[15px] font-bold leading-snug break-words ${task.completed ? 'line-through text-zinc-500' : 'text-white'}">
+                            ${escapeHtml(task.title)}
+                        </h3>
+
+                        <div class="flex flex-wrap items-center gap-2 mt-1.5">
+                            ${task.time ? `
+                                <span class="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-lg bg-indigo-500/15 text-indigo-300 border border-indigo-500/20">
+                                    ⏰ ${task.time}
+                                </span>
+                            ` : ''}
+                            ${hasSubtasks ? `
+                                <span class="text-[11px] font-medium text-zinc-400">
+                                    ${subDone}/${subTotal} adım tamamlandı
+                                </span>
+                            ` : ''}
+                        </div>
+                    </div>
+
+                    <!-- Sağ Aksiyon İkonları (Takvim Alarmı & Sil & Aç/Kapat) -->
+                    <div class="flex items-center gap-1 shrink-0">
+                        ${task.time ? `
+                            <button onclick="exportTaskToICS('${task.id}')" title="iPhone Takvim/Hatırlatıcı Alarmı Kur" class="p-2 rounded-xl text-indigo-400 hover:bg-indigo-500/10 active:scale-90 transition">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                                </svg>
+                            </button>
+                        ` : ''}
+                        <button onclick="deleteTask('${task.id}')" title="Sil" class="p-2 rounded-xl text-zinc-500 hover:text-red-400 hover:bg-red-500/10 active:scale-90 transition">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                            </svg>
+                        </button>
+                        <button onclick="toggleExpandTask('${task.id}')" class="p-2 rounded-xl text-zinc-400 hover:text-white transition">
+                            <svg class="w-4 h-4 transform transition-transform ${task.expanded ? 'rotate-180' : ''}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Alt Görev İlerleme Çubuğu -->
+                ${hasSubtasks ? `
+                    <div class="w-full h-1.5 bg-zinc-900 rounded-full mt-3 overflow-hidden">
+                        <div class="h-full bg-emerald-500 rounded-full transition-all duration-300" style="width: ${subPercent}%"></div>
+                    </div>
+                ` : ''}
+
+                <!-- Alt Görevler Listesi (Açılır/Kapanır Alan) -->
+                ${task.expanded ? `
+                    <div class="mt-3 pt-3 border-t border-zinc-800/80 space-y-2 pl-2">
+                        ${(task.subtasks || []).map(sub => `
+                            <div class="flex items-center justify-between gap-2.5 group py-1">
+                                <button onclick="toggleSubtask('${task.id}', '${sub.id}')" class="flex items-center gap-3 flex-1 text-left">
+                                    <span class="custom-checkbox w-5 h-5 rounded-lg border flex items-center justify-center shrink-0 ${
+                                        sub.completed
+                                            ? 'bg-emerald-500/90 border-emerald-500 text-black'
+                                            : 'border-zinc-600 bg-zinc-900/80'
+                                    }">
+                                        ${sub.completed ? '<svg class="w-3.5 h-3.5 stroke-[3]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"></path></svg>' : ''}
+                                    </span>
+                                    <span class="text-sm leading-snug ${sub.completed ? 'line-through text-zinc-500' : 'text-zinc-200'}">
+                                        ${escapeHtml(sub.title)}
+                                    </span>
+                                </button>
+                                <button onclick="deleteSubtask('${task.id}', '${sub.id}')" class="p-1 text-zinc-600 hover:text-red-400">
+                                    ✕
+                                </button>
+                            </div>
+                        `).join('')}
+
+                        <!-- Kart İçi Hızlı Alt Görev Ekleme -->
+                        <div class="flex items-center gap-2 pt-1">
+                            <input type="text" id="inline-sub-${task.id}" placeholder="+ Alt adım ekle..." onkeypress="if(event.key==='Enter') addInlineSubtask('${task.id}')" class="flex-1 bg-zinc-900/60 border border-zinc-800/80 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500/60">
+                            <button onclick="addInlineSubtask('${task.id}')" class="px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-xs font-semibold text-zinc-300">
+                                Ekle
+                            </button>
+                        </div>
+                    </div>
+                ` : ''}
+            </div>
+            `;
+        }
+
+        // ==========================================
+        // GÖREV & ALT GÖREV ETKİLEŞİMLERİ
+        // ==========================================
+        function toggleMainTask(taskId) {
+            const task = tasks.find(t => t.id === taskId);
+            if (!task) return;
+
+            task.completed = !task.completed;
+            if (task.subtasks && task.subtasks.length > 0) {
+                task.subtasks.forEach(s => s.completed = task.completed);
+            }
+
+            playFeedbackSound(task.completed ? 'completeAll' : 'check');
+            saveTasksToStorage();
+            renderAll();
+        }
+
+        function toggleSubtask(taskId, subId) {
+            const task = tasks.find(t => t.id === taskId);
+            if (!task) return;
+
+            const sub = task.subtasks.find(s => s.id === subId);
+            if (!sub) return;
+
+            sub.completed = !sub.completed;
+
+            // Tüm alt görevler tamamlandıysa ana görevi otomatik tamamla
+            const allDone = task.subtasks.length > 0 && task.subtasks.every(s => s.completed);
+            task.completed = allDone;
+
+            playFeedbackSound(allDone ? 'completeAll' : 'check');
+            saveTasksToStorage();
+            renderAll();
+        }
+
+        function addInlineSubtask(taskId) {
+            const input = document.getElementById(`inline-sub-${taskId}`);
+            if (!input) return;
+            const val = input.value.trim();
+            if (!val) return;
+
+            const task = tasks.find(t => t.id === taskId);
+            if (!task) return;
+
+            if (!task.subtasks) task.subtasks = [];
+            task.subtasks.push({
+                id: 'sub-' + Date.now(),
+                title: val,
+                completed: false
+            });
+            task.completed = false;
+            task.expanded = true;
+
+            saveTasksToStorage();
+            renderAll();
+        }
+
+        function deleteSubtask(taskId, subId) {
+            const task = tasks.find(t => t.id === taskId);
+            if (!task) return;
+            task.subtasks = task.subtasks.filter(s => s.id !== subId);
+            saveTasksToStorage();
+            renderAll();
+        }
+
+        function deleteTask(taskId) {
+            tasks = tasks.filter(t => t.id !== taskId);
+            saveTasksToStorage();
+            renderAll();
+            showToast('Görev silindi');
+        }
+
+        function toggleExpandTask(taskId) {
+            const task = tasks.find(t => t.id === taskId);
+            if (!task) return;
+            task.expanded = !task.expanded;
+            saveTasksToStorage();
+            renderAll();
+        }
+
+        // ==========================================
+        // MODAL & SESLİ KOMUT (WEB SPEECH API)
+        // ==========================================
+        function openTaskModal(startVoice = false) {
+            modalSubtasks = [];
+            document.getElementById('input-task-title').value = '';
+            document.getElementById('input-new-subtask').value = '';
+            document.getElementById('input-task-time').value = '';
+            document.getElementById('input-task-day').value = activeTab;
+            document.getElementById('smart-split-btn').classList.add('hidden');
+            renderModalSubtasks();
+
+            const modal = document.getElementById('task-modal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+
+            if (startVoice) {
+                setTimeout(() => toggleVoiceRecording(true), 250);
+            } else {
+                setTimeout(() => document.getElementById('input-task-title').focus(), 200);
+            }
+        }
+
+        function closeTaskModal() {
+            stopVoiceRecording();
+            const modal = document.getElementById('task-modal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+
+        function initSpeechRecognition() {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!SpeechRecognition) return;
+
+            recognition = new SpeechRecognition();
+            recognition.lang = 'tr-TR';
+            recognition.continuous = false;
+            recognition.interimResults = true;
+
+            recognition.onstart = function () {
+                isRecording = true;
+                document.getElementById('mic-trigger-btn').classList.add('recording-pulse', 'bg-red-500', 'text-white');
+                document.getElementById('mic-trigger-btn').classList.remove('bg-red-500/20', 'text-red-400');
+                document.getElementById('voice-wave').classList.remove('hidden');
+                document.getElementById('voice-wave').classList.add('flex');
+                document.getElementById('voice-status-text').textContent = 'Dinliyorum... Şimdi konuşabilirsin';
+            };
+
+            recognition.onresult = function (event) {
+                let transcript = '';
+                for (let i = event.resultIndex; i < event.results.length; i++) {
+                    transcript += event.results[i][0].transcript;
+                }
+                const titleInput = document.getElementById('input-task-title');
+                titleInput.value = capitalizeFirst(transcript.trim());
+
+                // Eğer cümlede bağlaç veya virgül varsa akıllı bölme butonunu göster
+                if (transcript.includes(',') || / sonra | önce | ve | adım /i.test(transcript)) {
+                    document.getElementById('smart-split-btn').classList.remove('hidden');
+                }
+            };
+
+            recognition.onerror = function (event) {
+                stopVoiceRecording();
+                if (event.error === 'not-allowed') {
+                    document.getElementById('voice-status-text').textContent = 'Mikrofon izni kapalı. iPhone Safari ayarlarından izin verebilir veya yazarak ekleyebilirsin.';
+                } else {
+                    document.getElementById('voice-status-text').textContent = 'Ses algılanamadı, tekrar dokunup konuşabilirsin.';
+                }
+            };
+
+            recognition.onend = function () {
+                stopVoiceRecording();
+                const val = document.getElementById('input-task-title').value.trim();
+                if (val) {
+                    document.getElementById('voice-status-text').textContent = 'Ses metne dönüştürüldü! İstersen adımlara bölebilirsin.';
+                    // Otomatik akıllı parçalama kontrolü
+                    if (/ sonra | önce | alt görev /i.test(val) || val.split(',').length > 1) {
+                        smartSplitTitleToSubtasks();
+                    }
+                }
+            };
+        }
+
+        function toggleVoiceRecording(forceStart = false) {
+            if (!recognition) {
+                showToast('Tarayıcın sesli girişi desteklemiyor, klavyedeki mikrofonu kullanabilirsin.');
+                document.getElementById('input-task-title').focus();
+                return;
+            }
+
+            if (isRecording && !forceStart) {
+                stopVoiceRecording();
+            } else {
+                try {
+                    recognition.start();
+                } catch (e) {
+                    // Zaten çalışıyorsa yoksay
+                }
+            }
+        }
+
+        function stopVoiceRecording() {
+            isRecording = false;
+            if (recognition) {
+                try { recognition.stop(); } catch (e) {}
+            }
+            const btn = document.getElementById('mic-trigger-btn');
+            if (btn) {
+                btn.classList.remove('recording-pulse', 'bg-red-500', 'text-white');
+                btn.classList.add('bg-red-500/20', 'text-red-400');
+            }
+            const wave = document.getElementById('voice-wave');
+            if (wave) {
+                wave.classList.add('hidden');
+                wave.classList.remove('flex');
+            }
+        }
+
+        // Sesli cümleyi Ana Görev + Alt Görevlere akıllı parçalama
+        function smartSplitTitleToSubtasks() {
+            const titleInput = document.getElementById('input-task-title');
+            const raw = titleInput.value.trim();
+            if (!raw) return;
+
+            // Virgül, "önce", "sonra", "ardından", "ve" gibi ifadelerle parçala
+            const parts = raw
+                .split(/,|;|\bönce\b|\bsonra\b|\bardından\b|\balt görev\b/i)
+                .map(p => p.trim())
+                .filter(p => p.length > 1);
+
+            if (parts.length > 1) {
+                titleInput.value = capitalizeFirst(parts[0]);
+                for (let i = 1; i < parts.length; i++) {
+                    modalSubtasks.push(capitalizeFirst(parts[i]));
+                }
+                renderModalSubtasks();
+                document.getElementById('smart-split-btn').classList.add('hidden');
+                showToast(`${parts.length - 1} alt adım otomatik ayrıştırıldı ✨`);
+            }
+        }
+
+        function handleSubtaskKeyPress(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                addModalSubtask();
+            }
+        }
+
+        function addModalSubtask() {
+            const input = document.getElementById('input-new-subtask');
+            const val = input.value.trim();
+            if (!val) return;
+            modalSubtasks.push(capitalizeFirst(val));
+            input.value = '';
+            renderModalSubtasks();
+            input.focus();
+        }
+
+        function removeModalSubtask(index) {
+            modalSubtasks.splice(index, 1);
+            renderModalSubtasks();
+        }
+
+        function renderModalSubtasks() {
+            const container = document.getElementById('modal-subtasks-list');
+            container.innerHTML = modalSubtasks.map((sub, idx) => `
+                <div class="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-800 text-sm text-zinc-200">
+                    <span class="truncate">• ${escapeHtml(sub)}</span>
+                    <button type="button" onclick="removeModalSubtask(${idx})" class="text-zinc-500 hover:text-red-400 px-1">✕</button>
+                </div>
+            `).join('');
+        }
+
+        function saveTask() {
+            const title = document.getElementById('input-task-title').value.trim();
+            if (!title) {
+                showToast('Lütfen bir görev başlığı gir veya sesle söyle');
+                return;
+            }
+
+            // Eğer alt görev inputunda yazılmış ama ekle'ye basılmamış metin varsa onu da al
+            const pendingSub = document.getElementById('input-new-subtask').value.trim();
+            if (pendingSub) {
+                modalSubtasks.push(capitalizeFirst(pendingSub));
+            }
+
+            const selectedDay = document.getElementById('input-task-day').value;
+            const targetDate = selectedDay === 'tomorrow' ? getDateStr(1) : getDateStr(0);
+            const reminderTime = document.getElementById('input-task-time').value;
+
+            const newTask = {
+                id: 'task-' + Date.now(),
+                title: capitalizeFirst(title),
+                date: targetDate,
+                time: reminderTime || null,
+                completed: false,
+                expanded: true,
+                reminded: false,
+                subtasks: modalSubtasks.map((st, idx) => ({
+                    id: `sub-${Date.now()}-${idx}`,
+                    title: st,
+                    completed: false
+                }))
+            };
+
+            tasks.unshift(newTask);
+            saveTasksToStorage();
+            closeTaskModal();
+
+            if (activeTab !== selectedDay) {
+                switchDay(selectedDay);
+            } else {
+                renderAll();
+            }
+
+            playFeedbackSound('check');
+            showToast(selectedDay === 'tomorrow' ? 'Yarın planına eklendi 🌙' : 'Bugünün planına eklendi 🚀');
+        }
+
+        // ==========================================
+        // iPHONE HATIRLATICI (.ICS) & CANLI ALARM
+        // ==========================================
+        function exportTaskToICS(taskId) {
+            const task = tasks.find(t => t.id === taskId);
+            if (!task || !task.time) return;
+
+            const [hours, minutes] = task.time.split(':');
+            const dateParts = task.date.split('-'); // YYYY, MM, DD
+            const startDate = new Date(
+                parseInt(dateParts[0]),
+                parseInt(dateParts[1]) - 1,
+                parseInt(dateParts[2]),
+                parseInt(hours),
+                parseInt(minutes),
+                0
+            );
+            const endDate = new Date(startDate.getTime() + 30 * 60000); // 30 dk süre
+
+            const formatICSDate = (d) => {
+                return d.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+            };
+
+            const subDesc = (task.subtasks || []).map(s => `- ${s.title}`).join('\\n');
+
+            const icsContent = [
+                'BEGIN:VCALENDAR',
+                'VERSION:2.0',
+                'PRODID:-//OdakPlan//LifePM//TR',
+                'BEGIN:VEVENT',
+                `UID:${task.id}@odakplan.app`,
+                `DTSTAMP:${formatICSDate(new Date())}`,
+                `DTSTART:${formatICSDate(startDate)}`,
+                `DTEND:${formatICSDate(endDate)}`,
+                `SUMMARY:🎯 ${task.title}`,
+                `DESCRIPTION:${subDesc || 'OdakPlan Günlük Hatırlatıcı'}`,
+                'BEGIN:VALARM',
+                'TRIGGER:-PT0M',
+                'ACTION:DISPLAY',
+                `DESCRIPTION:${task.title}`,
+                'END:VALARM',
+                'END:VEVENT',
+                'END:VCALENDAR'
+            ].join('\r\n');
+
+            const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `hatirlatici-${task.time.replace(':', '')}.ics`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+
+            showToast('iPhone Takvim alarmı indirildi! Açıp "Ekle"ye dokun.');
+        }
+
+        function checkNotificationStatus() {
+            if ('Notification' in window && Notification.permission === 'granted') {
+                document.getElementById('notif-dot').classList.remove('hidden');
+            }
+        }
+
+        function toggleNotificationPermission() {
+            if (!('Notification' in window)) {
+                showToast('iPhone kilit ekranı bildirimleri için görevdeki Takvim ikonunu kullanabilirsin.');
+                return;
+            }
+            Notification.requestPermission().then(perm => {
+                if (perm === 'granted') {
+                    document.getElementById('notif-dot').classList.remove('hidden');
+                    showToast('Uygulama içi hatırlatıcılar aktif edildi 🔔');
+                } else {
+                    showToast('Bildirim izni verilmedi. Görev saatindeki Takvim ikonunu kullanabilirsin.');
+                }
+            });
+        }
+
+        function startReminderWatcher() {
+            setInterval(() => {
+                const now = new Date();
+                const todayStr = getDateStr(0);
+                const currentHHMM = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+                tasks.forEach(task => {
+                    if (task.date === todayStr && !task.completed && !task.reminded && task.time === currentHHMM) {
+                        task.reminded = true;
+                        saveTasksToStorage();
+                        playFeedbackSound('reminder');
+                        showToast(`⏰ Hatırlatma: ${task.title}`);
+
+                        if ('Notification' in window && Notification.permission === 'granted') {
+                            new Notification('OdakPlan Hatırlatıcı', {
+                                body: task.title
+                            });
+                        }
+                    }
+                });
+            }, 15000);
+        }
+
+        // ==========================================
+        // YARDIMCI FONKSİYONLAR (TOAST, KONFETİ, MODAL)
+        // ==========================================
+        function openHelpModal() {
+            const m = document.getElementById('help-modal');
+            m.classList.remove('hidden');
+            m.classList.add('flex');
+        }
+
+        function closeHelpModal() {
+            const m = document.getElementById('help-modal');
+            m.classList.add('hidden');
+            m.classList.remove('flex');
+        }
+
+        function showToast(message) {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = 'mb-2 px-4 py-3 rounded-2xl bg-zinc-900/95 border border-zinc-700 text-white text-xs font-semibold shadow-2xl backdrop-blur-md animate-pop';
+            toast.textContent = message;
+            container.appendChild(toast);
+
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.transition = 'opacity 0.3s ease';
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
+        function triggerConfetti() {
+            const colors = ['#10B981', '#6366F1', '#F59E0B', '#EC4899', '#34D399'];
+            for (let i = 0; i < 40; i++) {
+                const piece = document.createElement('div');
+                piece.className = 'confetti-piece';
+                piece.style.left = Math.random() * 100 + 'vw';
+                piece.style.top = '-10px';
+                piece.style.backgroundColor = colors[Math.floor(Math.random() * colors.length)];
+                piece.style.animationDuration = (1.5 + Math.random() * 1.5) + 's';
+                document.body.appendChild(piece);
+                setTimeout(() => piece.remove(), 3000);
+            }
+        }
+
+        function capitalizeFirst(str) {
+            if (!str) return '';
+            return str.charAt(0).toUpperCase() + str.slice(1);
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>
